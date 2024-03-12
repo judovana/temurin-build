@@ -79,9 +79,16 @@ checkoutAndCloneOpenJDKGitRepo() {
       exit 1
     fi
   elif [ ! -d "${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}/.git" ]; then
-    echo "Could not find a valid openjdk git repository at $(pwd)/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]} so re-cloning the source to openjdk"
-    rm -rf "${BUILD_CONFIG[WORKSPACE_DIR]:?}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
-    cloneOpenJDKGitRepo
+    if [ -d ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} ]  ; then
+      set -x
+      echo "Could not find a valid openjdk git repository at in copied JDK"
+      echo "Copyng existing ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} to `pwd`"
+      cp -r ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} . || echo "issues during copy. .git refs?"
+    else
+      echo "Could not find a valid openjdk git repository at $(pwd)/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]} so re-cloning the source to openjdk"
+      rm -rf "${BUILD_CONFIG[WORKSPACE_DIR]:?}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
+      cloneOpenJDKGitRepo
+    fi
   fi
 
   checkoutRequiredCodeToBuild
@@ -119,20 +126,33 @@ checkoutAndCloneOpenJDKGitRepo() {
 # Set checkoutRc to result so we can retry
 checkoutRequiredCodeToBuild() {
   checkoutRc=1
-
-  cd "${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
-
-  echo "checkoutRequiredCodeToBuild:"
-  echo "  workspace = ${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
-  echo "  BUILD_VARIANT = ${BUILD_CONFIG[BUILD_VARIANT]}"
-  echo "  TAG = ${BUILD_CONFIG[TAG]}"
-  echo "  BRANCH = ${BUILD_CONFIG[BRANCH]}"
+  if [ -d ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} ]  ; then
+    name=`basename ${BUILD_CONFIG[OPENJDK_FOREST_NAME]}`
+    lworkspace="${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/$name/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
+    ltag=custom
+    checkoutRc=0
+    cd ${lworkspace};
+    echo "checkoutRequiredCodeToBuild:"
+    echo "  workspace = ${lworkspace}"
+    echo "  BUILD_VARIANT = ${BUILD_CONFIG[BUILD_VARIANT]}"
+    echo "  TAG = skipped"
+    echo "  BRANCH = skipped"
+    return
+  else
+    lworkspace="${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
+    cd ${lworkspace};
+    echo "checkoutRequiredCodeToBuild:"
+    echo "  workspace = ${lworkspace}"
+    echo "  BUILD_VARIANT = ${BUILD_CONFIG[BUILD_VARIANT]}"
+    echo "  TAG = ${BUILD_CONFIG[TAG]}"
+    echo "  BRANCH = ${BUILD_CONFIG[BRANCH]}"
+  fi
 
   # Ensure commands don't abort shell
   set +e
   local rc=0
 
-  local tag="${BUILD_CONFIG[TAG]}"
+  local tag="$ltag"
   local sha=""
   if [ "${BUILD_CONFIG[BUILD_VARIANT]}" != "${BUILD_VARIANT_OPENJ9}" ]; then
     git fetch --tags || rc=$?

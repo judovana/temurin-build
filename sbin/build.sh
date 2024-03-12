@@ -546,7 +546,13 @@ configureCommandParameters() {
 
 # Make sure we're in the source directory for OpenJDK now
 stepIntoTheWorkingDirectory() {
-  cd "${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}" || exit
+  if [ -d ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} ]  ; then
+    name=`basename ${BUILD_CONFIG[OPENJDK_FOREST_NAME]}`
+    lworkspace="${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/$name/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}/.."
+  else
+    lworkspace="${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
+  fi
+  cd ${lworkspace}  || exit
 
   # corretto/corretto-8 (jdk-8 only) nest their source under /src in their dir
   if [ "${BUILD_CONFIG[BUILD_VARIANT]}" == "${BUILD_VARIANT_CORRETTO}" ] && [ "${BUILD_CONFIG[OPENJDK_FEATURE_NUMBER]}" == "8" ]; then
@@ -1738,8 +1744,12 @@ getFirstTagFromOpenJDKGitRepo() {
   if [[ "${BUILD_CONFIG[BUILD_VARIANT]}" == "${BUILD_VARIANT_OPENJ9}" ]] && [[ -f "${openj9_openjdk_tag_file}" ]]; then
     firstMatchingNameFromRepo=$(grep OPENJDK_TAG ${openj9_openjdk_tag_file} | awk 'BEGIN {FS = "[ :=]+"} {print $2}')
   else
-    git fetch --tags "${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
-    firstMatchingNameFromRepo=$(git tag --list "$TAG_SEARCH" | "$get_tag_cmd")
+    if [ -d ${BUILD_CONFIG[OPENJDK_FOREST_NAME]} ]  ; then
+      firstMatchingNameFromRepo=custom
+    else
+      git fetch --tags "${BUILD_CONFIG[WORKSPACE_DIR]}/${BUILD_CONFIG[WORKING_DIR]}/${BUILD_CONFIG[OPENJDK_SOURCE_DIR]}"
+      firstMatchingNameFromRepo=$(git tag --list "$TAG_SEARCH" | "$get_tag_cmd")
+    fi
   fi
 
   if [ -z "$firstMatchingNameFromRepo" ]; then
