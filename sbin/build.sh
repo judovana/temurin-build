@@ -720,7 +720,11 @@ buildTemplatedFile() {
 
   if [[ "${BUILD_CONFIG[ASSEMBLE_EXPLODED_IMAGE]}" == "true" ]]; then
     # This is required so that make will only touch the jmods and not re-compile them after signing
-    FULL_MAKE_COMMAND="make -t \&\& ${FULL_MAKE_COMMAND}"
+
+    # To work around jdk-25+ bug https://bugs.openjdk.org/browse/JDK-8363942,
+    # GNU make version 4.4+ is required, along with removal of make artifact create-main-targets-include,
+    # to force target regeneration.
+    FULL_MAKE_COMMAND="make -t \&\& rm -f create-main-targets-include \&\& ${FULL_MAKE_COMMAND}"
   fi
 
   if [[ "${BUILD_CONFIG[ENABLE_SBOM_STRACE]}" == "true" ]]; then
@@ -1287,12 +1291,14 @@ addALSAVersion() {
 
      # Get ALSA include dir from the built build spec.gmk for ALSA_CFLAGS.
      local ALSA_INCLUDE="$(grep "^ALSA_CFLAGS[ ]*:=" ${specFile} | sed "s/^ALSA_CFLAGS[ ]*:=[ ]*//" | sed "s/^-I//")"
-     if [ -z "${ALSA_INCLUDE}" ]; then
-       echo "No ALSA_CFLAGS, ALSA not used"
+     # Get ALSA lib from the built build spec.gmk for ALSA_LIBS.
+     local ALSA_LIBS="$(grep "^ALSA_LIBS[ ]*:=" ${specFile} | sed "s/^ALSA_LIBS[ ]*:=[ ]*//")"
+     if [ -z "${ALSA_INCLUDE}" ] && [ -z "${ALSA_LIBS}" ]; then
+       echo "No ALSA_CFLAGS or ALSA_LIBS, ALSA not used"
      else
        local ALSA_VERSION
-       if [ "${ALSA_INCLUDE}" == "ignoreme" ]; then
-         # Value will be "ignoreme" if default/sysroot/devkit include path ALSA is being used, ask compiler for version
+       if [ "${ALSA_INCLUDE}" == "ignoreme" ] || [ -z "${ALSA_INCLUDE}" ]; then
+         # Value will be "ignoreme" or empty if system/sysroot/devkit ALSA is being used, ask compiler for version
          ALSA_VERSION=$(getHeaderPropertyUsingCompiler "alsa/version.h" "#define[ ]+SND_LIB_VERSION_STR")
        else
          local ALSA_VERSION_H="${ALSA_INCLUDE}/version.h"
@@ -1569,6 +1575,11 @@ getStaticLibsArchivePath() {
   echo "${jdkArchivePath}-static-libs"
 }
 
+getJmodsArchivePath() {
+  local jdkArchivePath=$(getJdkArchivePath)
+  echo "${jdkArchivePath}-jmods"
+}
+
 getSbomArchivePath(){
   local jdkArchivePath=$(getJdkArchivePath)
   echo "${jdkArchivePath}-sbom"
@@ -1582,6 +1593,7 @@ cleanAndMoveArchiveFiles() {
   local testImageTargetPath=$(getTestImageArchivePath)
   local debugImageTargetPath=$(getDebugImageArchivePath)
   local staticLibsImageTargetPath=$(getStaticLibsArchivePath)
+  local jmodsImageTargetPath=$(getJmodsArchivePath)
 
   echo "Moving archive content to target archive paths and cleaning unnecessary files..."
 
@@ -1621,6 +1633,14 @@ cleanAndMoveArchiveFiles() {
     echo "moving ${testImagePath} to ${testImageTargetPath}"
     rm -rf "${testImageTargetPath}" || true
     mv "${testImagePath}" "${testImageTargetPath}"
+  fi
+
+  # JMODs image - check if the directory exists. Only for JDK 24+
+  local jmodsImagePath="${BUILD_CONFIG[JMODS_IMAGE_PATH]}"
+  if [ -n "${jmodsImagePath}" ] && [ -d "${jmodsImagePath}" ]; then
+    echo "moving ${jmodsImagePath} to ${jmodsImageTargetPath}"
+    rm -rf "${jmodsImageTargetPath}" || true
+    mv "${jmodsImagePath}" "${jmodsImageTargetPath}"
   fi
 
   # Static libs image - check if the directory exists
@@ -2132,6 +2152,7 @@ createOpenJDKTarArchive() {
   local testImageTargetPath=$(getTestImageArchivePath)
   local debugImageTargetPath=$(getDebugImageArchivePath)
   local staticLibsImageTargetPath=$(getStaticLibsArchivePath)
+  local jmodsImageTargetPath=$(getJmodsArchivePath)
 
   echo "OpenJDK JDK path will be ${jdkTargetPath}. JRE path will be ${jreTargetPath}"
 
@@ -2175,6 +2196,11 @@ createOpenJDKTarArchive() {
   # for macOS system, code sign directory before creating tar.gz file
   if [ "${BUILD_CONFIG[OS_KERNEL_NAME]}" == "darwin" ] && [ -n "${BUILD_CONFIG[MACOSX_CODESIGN_IDENTITY]}" ]; then
     codesign --options runtime --timestamp --sign "${BUILD_CONFIG[MACOSX_CODESIGN_IDENTITY]}" "${jdkTargetPath}"
+  fi
+  if [ -d "${jmodsImageTargetPath}" ]; then
+    local jmodsImageName=$(getTargetFileNameForComponent "jmods")
+    echo "OpenJDK jmods image archive file name will be ${jmodsImageName}."
+    createArchive "${jmodsImageTargetPath}" "${jmodsImageName}"
   fi
   createArchive "${jdkTargetPath}" "${BUILD_CONFIG[TARGET_FILE_NAME]}"
 }
